@@ -1,11 +1,13 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="OceanWatch AI — AI-powered marine environmental intelligence engine with anomaly detection, smart alerts, and natural language query interface.">
+    <meta name="description" content="OceanWatch AI — AI-powered marine environmental intelligence engine with anomaly detection, adaptive learning, cross-zone correlation, smart alerts, and natural language query interface.">
+    <meta name="keywords" content="ocean monitoring, marine intelligence, anomaly detection, environmental AI, geospatial">
     <title>OceanWatch AI — Marine Intelligence Engine</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌊</text></svg>">
+    <link rel="manifest" href="manifest.json">
 
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -20,6 +22,27 @@
         <div class="loader-text" id="loader-text">Connecting to Ocean Data APIs...</div>
     </div>
 
+    <!-- Toast Container -->
+    <div id="toast-container"></div>
+
+    <!-- Keyboard Shortcut Modal -->
+    <div id="shortcut-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span>⌨️ Keyboard Shortcuts</span>
+                <button class="modal-close" onclick="toggleShortcutHelp()">×</button>
+            </div>
+            <div class="shortcut-list">
+                <div class="shortcut-item"><kbd>?</kbd> <span>Toggle this help</span></div>
+                <div class="shortcut-item"><kbd>/</kbd> <span>Focus AI chat input</span></div>
+                <div class="shortcut-item"><kbd>1</kbd>–<kbd>8</kbd> <span>Select zone by number</span></div>
+                <div class="shortcut-item"><kbd>E</kbd> <span>Export zone data as CSV</span></div>
+                <div class="shortcut-item"><kbd>T</kbd> <span>Toggle dark/light theme</span></div>
+                <div class="shortcut-item"><kbd>Esc</kbd> <span>Close panels and modals</span></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Header -->
     <header>
         <div class="logo">
@@ -30,7 +53,12 @@
             </div>
             <span class="data-source-badge badge-loading" id="data-source-badge">⏳ LOADING</span>
         </div>
-        <span class="last-updated" id="last-updated"></span>
+        <div class="header-toolbar">
+            <span class="last-updated" id="last-updated"></span>
+            <button class="toolbar-btn" id="theme-toggle" onclick="toggleTheme()" title="Toggle theme (T)">☀️</button>
+            <button class="toolbar-btn" onclick="triggerCSVExport('zones')" title="Export CSV (E)">📥 Export</button>
+            <button class="toolbar-btn" onclick="toggleShortcutHelp()" title="Shortcuts (?)">⌨️</button>
+        </div>
         <div class="header-stats">
             <div class="stat-item stat-critical">
                 <div class="stat-value" id="stat-critical">0</div>
@@ -92,17 +120,20 @@
                 <button class="quick-query" data-query="What needs attention right now?">⚡ Priorities</button>
                 <button class="quick-query" data-query="What's the forecast?">📈 Forecast</button>
                 <button class="quick-query" data-query="Rank all zones">📊 Rankings</button>
+                <button class="quick-query" data-query="Cross-zone correlations">🔗 Correlations</button>
                 <button class="quick-query" data-query="Coral bleaching risk?">🪸 Coral</button>
                 <button class="quick-query" data-query="Algal bloom status?">🦠 Bloom</button>
                 <button class="quick-query" data-query="Oxygen levels?">💧 Hypoxia</button>
                 <button class="quick-query" data-query="System accuracy?">🧠 Adaptive</button>
+                <button class="quick-query" data-query="Anomaly history">📜 Memory</button>
+                <button class="quick-query" data-query="Export data">📥 Export</button>
                 <button class="quick-query" data-query="Help">❓ Help</button>
             </div>
             <div class="panel-body">
                 <div id="chat-messages"></div>
             </div>
             <div class="chat-input-area">
-                <input type="text" id="chat-input" placeholder="Ask: What needs attention right now?">
+                <input type="text" id="chat-input" placeholder="Ask: What needs attention right now? (/ to focus)">
                 <button id="chat-send">Ask AI</button>
             </div>
         </div>
@@ -141,7 +172,7 @@
     </div>
 
     <div class="data-attribution">
-        📡 Data: <a href="https://open-meteo.com/" target="_blank">Open-Meteo</a> Weather & Marine APIs | Chlorophyll & DO derived from real SST
+        📡 Data: <a href="https://open-meteo.com/" target="_blank">Open-Meteo</a> Weather & Marine APIs | Chlorophyll & DO derived from real SST | Adaptive learning persisted via localStorage + IndexedDB
     </div>
 
     <script src="data.js"></script>

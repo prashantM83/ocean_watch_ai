@@ -1,6 +1,8 @@
 // ============================================================
-// OceanWatch AI — Main Application
+// OceanWatch AI — Main Application v2.0
 // Dashboard controller, map, charts, UI updates
+// Toast notifications, sound alerts, CSV export,
+// theme toggle, keyboard shortcuts, zone comparison
 // ============================================================
 
 let allData, engine, assistant, map, zoneMarkers = {}, zoneLayers = {}, currentAnalyses = [];
@@ -12,16 +14,156 @@ const CLASSIFICATION_ICONS = {
     THERMAL_ANOMALY: '🌡️', SIGNAL_DEVIATION: '📡', NORMAL: '✅'
 };
 
+// ---- Sound Alert (Web Audio API — no file needed) ----
+let audioCtx = null;
+function playAlertSound(priority) {
+    try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        if (priority === 'CRITICAL') {
+            osc.frequency.value = 880; gain.gain.value = 0.15;
+            osc.type = 'square';
+        } else {
+            osc.frequency.value = 660; gain.gain.value = 0.08;
+            osc.type = 'sine';
+        }
+        osc.start();
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
+        osc.stop(audioCtx.currentTime + 0.5);
+    } catch (e) { /* Audio not available */ }
+}
+
+// ---- Toast Notification System ----
+let toastCounter = 0;
+function showToast(message, priority = 'NORMAL', duration = 5000) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${priority.toLowerCase()} toast-enter`;
+    toast.id = `toast-${++toastCounter}`;
+    toast.innerHTML = `
+        <div class="toast-content">
+            <span class="toast-icon">${priority === 'CRITICAL' ? '🚨' : priority === 'WARNING' ? '⚠️' : 'ℹ️'}</span>
+            <span class="toast-message">${message}</span>
+            <button class="toast-close" onclick="this.parentElement.parentElement.remove()">×</button>
+        </div>
+    `;
+    container.appendChild(toast);
+    requestAnimationFrame(() => toast.classList.remove('toast-enter'));
+
+    // Auto-dismiss
+    setTimeout(() => {
+        toast.classList.add('toast-exit');
+        setTimeout(() => toast.remove(), 400);
+    }, duration);
+
+    // Max 5 toasts
+    while (container.children.length > 5) container.removeChild(container.firstChild);
+}
+
+// ---- CSV Export ----
+function triggerCSVExport(type = 'zones') {
+    const exportData = engine.getExportData(currentAnalyses, allData);
+    let csv, filename;
+
+    if (type === 'alerts') {
+        const rows = exportData.alerts;
+        if (rows.length === 0) { showToast('No alerts to export', 'WARNING'); return; }
+        const headers = Object.keys(rows[0]);
+        csv = headers.join(',') + '\n' + rows.map(r => headers.map(h => `"${(r[h] || '').toString().replace(/"/g, '""')}"`).join(',')).join('\n');
+        filename = `oceanwatch_alerts_${new Date().toISOString().slice(0, 10)}.csv`;
+    } else {
+        const rows = exportData.zones;
+        const headers = Object.keys(rows[0]);
+        csv = headers.join(',') + '\n' + rows.map(r => headers.map(h => `"${(r[h] || '').toString().replace(/"/g, '""')}"`).join(',')).join('\n');
+        filename = `oceanwatch_zones_${new Date().toISOString().slice(0, 10)}.csv`;
+    }
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    showToast(`📥 Exported ${type} data as CSV`, 'NORMAL', 3000);
+}
+
+// ---- Theme Toggle ----
+function toggleTheme() {
+    const html = document.documentElement;
+    const current = html.getAttribute('data-theme');
+    const newTheme = current === 'light' ? 'dark' : 'light';
+    html.setAttribute('data-theme', newTheme);
+    localStorage.setItem('oceanwatch_theme', newTheme);
+    const btn = document.getElementById('theme-toggle');
+    if (btn) btn.textContent = newTheme === 'light' ? '🌙' : '☀️';
+}
+
+function loadTheme() {
+    const saved = localStorage.getItem('oceanwatch_theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', saved);
+    const btn = document.getElementById('theme-toggle');
+    if (btn) btn.textContent = saved === 'light' ? '🌙' : '☀️';
+}
+
+// ---- Keyboard Shortcuts ----
+function setupKeyboardShortcuts() {
+    document.addEventListener('keydown', (e) => {
+        // Don't capture when typing in inputs
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+            if (e.key === 'Escape') e.target.blur();
+            return;
+        }
+
+        switch (e.key) {
+            case '?':
+                toggleShortcutHelp();
+                break;
+            case '/':
+                e.preventDefault();
+                document.getElementById('chat-input')?.focus();
+                break;
+            case 'Escape':
+                closeAllModals();
+                break;
+            case 'e': case 'E':
+                triggerCSVExport('zones');
+                break;
+            case 't': case 'T':
+                toggleTheme();
+                break;
+            case '1': case '2': case '3': case '4':
+            case '5': case '6': case '7': case '8':
+                selectZone(`zone-${e.key}`);
+                break;
+        }
+    });
+}
+
+function toggleShortcutHelp() {
+    const modal = document.getElementById('shortcut-modal');
+    if (modal) modal.classList.toggle('visible');
+}
+
+function closeAllModals() {
+    document.getElementById('shortcut-modal')?.classList.remove('visible');
+    document.getElementById('zone-detail')?.classList.remove('visible');
+}
+
+// ---- Init ----
 async function init() {
     showLoading(true);
     setDataSourceStatus('loading');
+    loadTheme();
 
     engine = new IntelligenceEngine();
     assistant = new AIAssistant(engine);
     initMap();
 
     try {
-        // Fetch real data from Open-Meteo APIs
         allData = await fetchAllZonesData((zoneName, completed, total, hadError) => {
             updateLoadingProgress(zoneName, completed, total, hadError);
         });
@@ -29,14 +171,12 @@ async function init() {
         console.log('✅ Real API data loaded successfully for all zones');
     } catch (error) {
         console.error('API fetch failed, trying cache:', error);
-        // Try cached data
         const cached = loadAllCachedData();
         if (cached && Object.keys(cached).length === ZONES.length) {
             allData = cached;
             setDataSourceStatus('cached');
             console.log('🟡 Using cached data');
         } else {
-            // Last resort: generate fallback data
             console.warn('🔴 No cache available, generating fallback data');
             allData = {};
             const month = new Date().getMonth();
@@ -46,6 +186,10 @@ async function init() {
     }
 
     engine.computeBaselines(allData);
+
+    // Detect cross-zone correlations
+    engine.detectCrossZonePatterns(allData);
+
     runAnalysis();
     showLoading(false);
 
@@ -54,8 +198,12 @@ async function init() {
 
     setupChat();
     setupQuickQueries();
+    setupKeyboardShortcuts();
     animateEntrance();
     updateLastUpdated();
+
+    // Register service worker
+    registerServiceWorker();
 }
 
 function showLoading(show) {
@@ -140,7 +288,6 @@ async function updateCycle() {
                 anySuccess = true;
             }
         } catch (e) {
-            // Silent fail for individual zone updates — use existing data
             console.warn(`Update failed for ${zone.name}:`, e.message);
         }
     });
@@ -153,15 +300,28 @@ async function updateCycle() {
     }
 
     engine.computeBaselines(allData);
+    engine.detectCrossZonePatterns(allData);
     runAnalysis();
     updateLastUpdated();
+
+    // Persist engine state every cycle
+    engine.saveState();
 }
 
 function updateUI(newAlerts) {
     updateZoneCards();
     updateMapMarkers();
     updateStatsBar();
-    if (newAlerts.length > 0) updateAlertFeed(newAlerts);
+    if (newAlerts.length > 0) {
+        updateAlertFeed(newAlerts);
+        // Toast + sound for new alerts
+        newAlerts.forEach(alert => {
+            showToast(`${CLASSIFICATION_ICONS[alert.classification] || '📡'} <strong>${alert.zoneName}</strong>: ${alert.classification.replace(/_/g, ' ')} (Score: ${alert.score})`, alert.priority, alert.priority === 'CRITICAL' ? 8000 : 5000);
+            if (alert.priority === 'CRITICAL' || alert.priority === 'WARNING') {
+                playAlertSound(alert.priority);
+            }
+        });
+    }
     if (selectedZone) updateZoneDetail(selectedZone);
 }
 
@@ -226,20 +386,25 @@ function updateAlertFeed(alerts) {
             <div class="alert-signals">${alert.signals.map(s => `${s.name}: ${s.value}${s.unit} (${s.zScore > 0 ? '+' : ''}${s.zScore}σ, ${s.trend})`).join(' | ')}</div>
             <div class="alert-action">📋 ${alert.action}</div>
             <div class="alert-validate">
-                <button class="btn-validate" onclick="validateAlert('${alert.id}', true)">✅ Validate</button>
-                <button class="btn-reject" onclick="validateAlert('${alert.id}', false)">❌ False Positive</button>
+                <button class="btn-validate" onclick="validateAlert('${alert.id}', true, this)">✅ Validate</button>
+                <button class="btn-reject" onclick="validateAlert('${alert.id}', false, this)">❌ False Positive</button>
             </div>`;
         container.prepend(el);
         setTimeout(() => el.classList.remove('alert-enter'), 50);
     });
-    // Keep max 20 alerts in feed
     while (container.children.length > 20) container.removeChild(container.lastChild);
 }
 
-function validateAlert(id, isValid) {
+function validateAlert(id, isValid, btn) {
     engine.validateAlert(id, isValid);
-    const btns = event.target.parentElement;
-    btns.innerHTML = isValid ? '<span class="validated">✅ Validated — Sensitivity increased</span>' : '<span class="rejected">❌ Marked False Positive — Sensitivity reduced</span>';
+    const parent = btn.parentElement;
+    if (isValid) {
+        parent.innerHTML = '<span class="validated">✅ Validated — Zone + signal sensitivity increased</span>';
+        showToast('Alert validated. Sensitivity calibrated.', 'NORMAL', 3000);
+    } else {
+        parent.innerHTML = '<span class="rejected">❌ False Positive — Zone + signal sensitivity reduced</span>';
+        showToast('Marked as false positive. System will learn to discount similar signals.', 'ADVISORY', 4000);
+    }
 }
 
 function selectZone(zoneId) {
@@ -257,7 +422,6 @@ function updateZoneDetail(zoneId) {
     const analysis = currentAnalyses.find(a => a.zoneId === zoneId);
     if (!analysis) return;
     const zone = analysis.zone;
-    const panel = document.getElementById('zone-detail');
 
     document.getElementById('detail-zone-name').textContent = zone.name;
     document.getElementById('detail-zone-type').textContent = `${zone.ecosystemType} • ${zone.depth} • ${zone.region}`;
@@ -268,22 +432,23 @@ function updateZoneDetail(zoneId) {
     document.getElementById('detail-explanation').textContent = analysis.classificationDetail;
     document.getElementById('detail-action').textContent = engine.getActionRec(analysis);
 
-    // Signal cards
+    // Signal cards with confidence intervals
     const sigContainer = document.getElementById('detail-signals');
     sigContainer.innerHTML = Object.entries(analysis.signals).map(([key, s]) => {
         const fc = engine.forecast(zoneId, key, 3);
         const trendIcon = s.trend === 'rising' ? '📈' : s.trend === 'falling' ? '📉' : '➡️';
+        const sensLabel = s.signalSensitivity !== 1.0 ? `<div class="signal-sensitivity">Sens: ${s.signalSensitivity}x</div>` : '';
         return `<div class="signal-card ${s.isAnomaly ? 'signal-anomaly' : ''}">
             <div class="signal-header">${SIGNALS[key].icon} ${SIGNALS[key].shortName}</div>
             <div class="signal-value">${s.value} <small>${s.unit}</small></div>
             <div class="signal-baseline">Baseline: ${s.seasonalMean} ${s.unit}</div>
             <div class="signal-deviation ${s.deviationPercent > 0 ? 'dev-up' : 'dev-down'}">${s.deviationPercent > 0 ? '+' : ''}${s.deviationPercent}% ${trendIcon}</div>
             <div class="signal-zscore">Z-Score: ${s.effectiveZScore > 0 ? '+' : ''}${s.effectiveZScore}σ</div>
-            ${fc ? `<div class="signal-forecast">3-day: ${fc.projectedValue}${SIGNALS[key].unit} <span class="risk-${fc.risk.toLowerCase()}">${fc.risk} risk</span></div>` : ''}
+            ${fc ? `<div class="signal-forecast">3d: ${fc.projectedValue}${SIGNALS[key].unit} <small>[${fc.lowerBound}–${fc.upperBound}]</small><br><span class="risk-${fc.risk.toLowerCase()}">${fc.risk} risk</span> · ${fc.confidence}% conf</div>` : ''}
+            ${sensLabel}
         </div>`;
     }).join('');
 
-    // Update charts
     updateSignalCharts(zoneId);
 }
 
@@ -298,7 +463,7 @@ function updateSignalCharts(zoneId) {
         chartContainer.appendChild(canvas);
 
         const history = allData[zoneId].history[sig];
-        const last72 = history.slice(-72); // 6 days
+        const last72 = history.slice(-72);
         const baseline = engine.baselines[zoneId][sig];
         const labels = last72.map((_, i) => i % 12 === 0 ? `Day ${Math.floor(i / 12) + 1}` : '');
 
@@ -333,12 +498,11 @@ function setupChat() {
     btn.addEventListener('click', () => sendChat());
     input.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendChat(); });
 
-    // Welcome message with Gemini status
     const geminiNote = assistant.geminiAvailable
         ? '🧠 <strong>Gemini AI active</strong> — I can answer any question about the ocean data!'
         : '💡 Type "settings" to activate Gemini AI for smarter responses.';
     appendChatMessage('assistant', assistant.fmt('🌊 OceanWatch AI Ready',
-        `Monitoring ${ZONES.length} marine zones with <strong>real API data</strong>. ${geminiNote}<br>Try "What needs attention right now?" or click a zone on the map.`, []));
+        `Monitoring ${ZONES.length} marine zones with <strong>real API data</strong>. ${geminiNote}<br>Try "What needs attention right now?" or press <kbd>/</kbd> to focus chat. <kbd>?</kbd> for shortcuts.`, []));
 }
 
 let isChatBusy = false;
@@ -351,7 +515,6 @@ async function sendChat() {
     appendChatMessage('user', { title: '', summary: query, items: [] });
     input.value = '';
 
-    // Show typing indicator
     isChatBusy = true;
     const typingId = showTypingIndicator();
 
@@ -412,6 +575,17 @@ function setupQuickQueries() {
             sendChat();
         });
     });
+}
+
+// ---- Service Worker Registration ----
+function registerServiceWorker() {
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js').then(reg => {
+            console.log('✅ Service Worker registered', reg.scope);
+        }).catch(err => {
+            console.warn('SW registration failed:', err);
+        });
+    }
 }
 
 function animateEntrance() {
