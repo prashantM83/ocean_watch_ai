@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="OceanWatch AI — AI-powered marine environmental intelligence engine with anomaly detection, smart alerts, and natural language query interface.">
+    <title>OceanWatch AI — Marine Intelligence Engine</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌊</text></svg>">
+
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+</head>
+<body>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay">
+        <div class="loader"></div>
+        <div class="loader-text" id="loader-text">Connecting to Ocean Data APIs...</div>
+    </div>
+
+    <!-- Header -->
+    <header>
+        <div class="logo">
+            <span class="logo-icon">🌊</span>
+            <div>
+                <h1>OceanWatch AI</h1>
+                <div class="logo-sub">Marine Environmental Intelligence Engine</div>
+            </div>
+            <span class="data-source-badge badge-loading" id="data-source-badge">⏳ LOADING</span>
+        </div>
+        <span class="last-updated" id="last-updated"></span>
+        <div class="header-stats">
+            <div class="stat-item stat-critical">
+                <div class="stat-value" id="stat-critical">0</div>
+                <div class="stat-label">Critical</div>
+            </div>
+            <div class="stat-item stat-warning">
+                <div class="stat-value" id="stat-warning">0</div>
+                <div class="stat-label">Warning</div>
+            </div>
+            <div class="stat-item stat-advisory">
+                <div class="stat-value" id="stat-advisory">0</div>
+                <div class="stat-label">Advisory</div>
+            </div>
+            <div class="stat-item stat-normal">
+                <div class="stat-value" id="stat-normal">0</div>
+                <div class="stat-label">Normal</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="stat-total-alerts" style="color:var(--accent)">0</div>
+                <div class="stat-label">Alerts</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="stat-zones" style="color:var(--accent)">0</div>
+                <div class="stat-label">Zones</div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Grid -->
+    <div class="main-grid">
+
+        <!-- Left: Zone Status Cards -->
+        <div class="panel zone-panel">
+            <div class="panel-header">
+                <span class="panel-title">📡 Zone Status</span>
+                <span style="font-size:10px;color:var(--text-muted)">Ranked by severity</span>
+            </div>
+            <div class="panel-body" id="zone-cards">
+                <!-- Populated by JS -->
+            </div>
+        </div>
+
+        <!-- Center Top: Map -->
+        <div class="panel map-panel">
+            <div class="panel-header">
+                <span class="panel-title">🗺️ Monitoring Network</span>
+                <span style="font-size:10px;color:var(--text-muted)">Click zone to inspect</span>
+            </div>
+            <div id="map"></div>
+        </div>
+
+        <!-- Right: AI Chat -->
+        <div class="panel chat-panel">
+            <div class="panel-header">
+                <span class="panel-title">🤖 AI Assistant</span>
+                <span style="font-size:10px;color:var(--text-muted)">Context-Aware Queries</span>
+            </div>
+            <div class="quick-queries">
+                <button class="quick-query" data-query="What needs attention right now?">⚡ Priorities</button>
+                <button class="quick-query" data-query="What's the forecast?">📈 Forecast</button>
+                <button class="quick-query" data-query="Rank all zones">📊 Rankings</button>
+                <button class="quick-query" data-query="Coral bleaching risk?">🪸 Coral</button>
+                <button class="quick-query" data-query="Algal bloom status?">🦠 Bloom</button>
+                <button class="quick-query" data-query="Oxygen levels?">💧 Hypoxia</button>
+                <button class="quick-query" data-query="System accuracy?">🧠 Adaptive</button>
+                <button class="quick-query" data-query="Help">❓ Help</button>
+            </div>
+            <div class="panel-body">
+                <div id="chat-messages"></div>
+            </div>
+            <div class="chat-input-area">
+                <input type="text" id="chat-input" placeholder="Ask: What needs attention right now?">
+                <button id="chat-send">Ask AI</button>
+            </div>
+        </div>
+
+        <!-- Center Middle: Zone Detail -->
+        <div class="panel detail-panel" id="zone-detail">
+            <div class="panel-header">
+                <span class="panel-title">🔍 Zone Intelligence Report</span>
+            </div>
+            <div class="panel-body">
+                <div class="detail-header">
+                    <span class="detail-zone-name" id="detail-zone-name">Select a zone</span>
+                    <span class="detail-priority" id="detail-priority">--</span>
+                    <span class="detail-score" id="detail-score">--</span>
+                </div>
+                <div class="detail-meta" id="detail-zone-type"></div>
+                <div class="detail-classification" id="detail-classification"></div>
+                <div class="detail-explanation" id="detail-explanation"></div>
+                <div class="detail-action" id="detail-action"></div>
+                <div class="signal-cards" id="detail-signals"></div>
+                <div class="detail-charts" id="detail-charts"></div>
+            </div>
+        </div>
+
+        <!-- Center Bottom: Alert Feed -->
+        <div class="panel alert-panel">
+            <div class="panel-header">
+                <span class="panel-title">🔔 Smart Alert Feed</span>
+                <span style="font-size:10px;color:var(--text-muted)">Filtered • Ranked • Actionable</span>
+            </div>
+            <div class="panel-body" id="alert-feed">
+                <!-- Populated by JS -->
+            </div>
+        </div>
+
+    </div>
+
+    <div class="data-attribution">
+        📡 Data: <a href="https://open-meteo.com/" target="_blank">Open-Meteo</a> Weather & Marine APIs | Chlorophyll & DO derived from real SST
+    </div>
+
+    <script src="data.js"></script>
+    <script src="api.js"></script>
+    <script src="engine.js"></script>
+    <script src="chat.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
